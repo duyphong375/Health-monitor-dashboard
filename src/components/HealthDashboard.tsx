@@ -165,7 +165,7 @@ export default function HealthDashboard() {
     ENABLE_MOCK ? "mock" : "connecting"
   );
 
-  const [now, setNow] = useState(new Date());
+  const [now, setNow] = useState<Date | null>(null);
   const [telemetry, setTelemetry] = useState<NormalizedTelemetry | null>(null);
   const [wave, setWave] = useState<WavePoint[]>([]);
   const [threshold, setThreshold] = useState(95);
@@ -246,10 +246,15 @@ export default function HealthDashboard() {
     saveHistory(history);
   }, [history]);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
+useEffect(() => {
+  setNow(new Date());
+
+  const timer = window.setInterval(() => {
+    setNow(new Date());
+  }, 1000);
+
+  return () => window.clearInterval(timer);
+}, []);
 
   useEffect(() => {
     if (ENABLE_MOCK) return;
@@ -651,9 +656,9 @@ export default function HealthDashboard() {
             ESP32-C3 {connected ? "Online" : "Offline"}
           </span>
 
-          <span className="glass-button">
+          <span className="glass-button" suppressHydrationWarning>
             <Clock className="h-4 w-4 text-cyan-500" />
-            {now.toLocaleString("vi-VN", { hour12: false })}
+            {now ? now.toLocaleString("vi-VN", { hour12: false }) : "--:--:--"}
           </span>
 
           <div className="relative">
