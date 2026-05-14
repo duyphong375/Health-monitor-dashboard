@@ -14,7 +14,6 @@ export type HealthTelemetry = {
 
   bpm?: number | null;
   spo2?: number | null;
-
   fingerDetected?: boolean;
   finger_detected?: boolean;
   finger_status?: string;
@@ -32,23 +31,21 @@ export type HealthTelemetry = {
   alarmStatus?: boolean;
   alarm_muted?: boolean;
   alarmMuted?: boolean;
-  muted?: boolean;
 
   led?: boolean;
   led_status?: string | boolean;
 
-  signal_quality?: string;
-  rainmaker?: string;
+  oled?: boolean;
+  oled_status?: string;
+  oledStatus?: string;
 
+  signal_quality?: string;
   firmwareVersion?: string;
   firmware_version?: string;
-
   wifiRssi?: number;
   wifi_rssi?: number;
-
   ipAddress?: string;
   ip_address?: string;
-
   uptime?: number;
   uptimeSec?: number;
 };
