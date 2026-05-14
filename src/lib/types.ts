@@ -14,6 +14,7 @@ export type HealthTelemetry = {
 
   bpm?: number | null;
   spo2?: number | null;
+
   fingerDetected?: boolean;
   finger_detected?: boolean;
   finger_status?: string;
@@ -26,28 +27,46 @@ export type HealthTelemetry = {
   spo2Threshold?: number;
   spo2_threshold?: number;
 
+  /*
+   * Trạng thái còi / buzzer
+   */
   buzzer?: boolean;
   alarm_status?: boolean;
   alarmStatus?: boolean;
+
   alarm_muted?: boolean;
   alarmMuted?: boolean;
+  muted?: boolean;
 
+  /*
+   * Trạng thái LED
+   */
   led?: boolean;
   led_status?: string | boolean;
+  ledStatus?: string | boolean;
 
+  /*
+   * Trạng thái OLED
+   */
   oled?: boolean;
   oled_status?: string;
   oledStatus?: string;
 
   signal_quality?: string;
+  signalQuality?: string;
+
   firmwareVersion?: string;
   firmware_version?: string;
+
   wifiRssi?: number;
   wifi_rssi?: number;
+
   ipAddress?: string;
   ip_address?: string;
+
   uptime?: number;
   uptimeSec?: number;
+  uptime_sec?: number;
 };
 
 export type NormalizedTelemetry = {
@@ -66,9 +85,18 @@ export type NormalizedTelemetry = {
 
   spo2Threshold: number;
 
+  /*
+   * Còi
+   */
   buzzer: boolean;
   alarmMuted: boolean;
+
+  /*
+   * LED / OLED
+   */
   led: boolean | null;
+  oled?: boolean | null;
+  oledStatus?: string;
 
   signalQuality: string;
 
