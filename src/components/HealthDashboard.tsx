@@ -32,7 +32,9 @@ import {
   publishAlarmMute,
   publishResetMeasurement,
   publishSpo2Threshold,
+  publishOledState,
 } from "@/lib/mqttClient";
+
 import { addRecord, loadHistory, saveHistory } from "@/lib/history";
 import {
   assessHealth,
@@ -50,10 +52,18 @@ import type {
   NormalizedTelemetry,
   WavePoint,
 } from "@/lib/types";
+import { sendEmailAlert } from "@/lib/emailAlert";
+import { sendTelegramAlert } from "@/lib/telegramAlert";
 
 const MAX_WAVE_POINTS = 150;
 const SIGNAL_TIMEOUT_MS = 10_000;
 const TOAST_COOLDOWN_MS = 7000;
+const REMOTE_ALERT_COOLDOWN_MS = Math.max(
+  30_000,
+  Number(process.env.NEXT_PUBLIC_ALERT_COOLDOWN_MS || 60_000)
+);
+const ENABLE_EMAIL_ALERT = process.env.NEXT_PUBLIC_ENABLE_EMAIL_ALERT === "true";
+const ENABLE_TELEGRAM_ALERT = process.env.NEXT_PUBLIC_ENABLE_TELEGRAM_ALERT === "true";
 
 function cx(...parts: Array<string | false | undefined>) {
   return parts.filter(Boolean).join(" ");
@@ -170,9 +180,12 @@ export default function HealthDashboard() {
     alarmMuted = true  => Còi: Tắt
   */
   const [alarmMuted, setAlarmMuted] = useState(false);
+  const [oledOn, setOledOn] = useState(true);
 
   const mqttClientRef = useRef<MqttClient | null>(null);
   const lastToastRef = useRef(0);
+  const lastRemoteAlertRef = useRef(0);
+  const remoteAlertBusyRef = useRef(false);
   const publishTimerRef = useRef<number | null>(null);
 
   const session = useRef<{
@@ -207,6 +220,7 @@ export default function HealthDashboard() {
     - buzzerEnabled = false => Còi: Tắt, không kêu dù vượt ngưỡng.
   */
   const buzzerEnabled = !alarmMuted;
+  const buzzerRinging = telemetry?.buzzer === true && buzzerEnabled;
 
   /*
     Logic LED:
@@ -246,6 +260,16 @@ export default function HealthDashboard() {
         const normalized = normalizeTelemetry(data);
         setTelemetry(normalized);
         setThreshold(normalized.spo2Threshold);
+        setAlarmMuted(normalized.alarmMuted);
+
+        if (typeof data.oled === "boolean") {
+          setOledOn(data.oled);
+        } else if (typeof data.oled_status === "string") {
+          setOledOn(data.oled_status.toUpperCase() === "ON");
+        } else if (typeof data.oledStatus === "string") {
+          setOledOn(data.oledStatus.toUpperCase() === "ON");
+        }
+
         setLastPacketAt(Date.now());
         setStatus("online");
       },
@@ -345,15 +369,59 @@ export default function HealthDashboard() {
   useEffect(() => {
     if (!telemetry) return;
 
-    if (["warning", "danger"].includes(assessment.level)) {
-      const msg =
-        assessment.level === "danger"
-          ? "Cảnh báo nguy hiểm: kiểm tra SpO₂/BPM ngay"
-          : `Cảnh báo: ${assessment.status}`;
+    const shouldAlert =
+      telemetry.fingerDetected === true &&
+      ["warning", "danger"].includes(assessment.level) &&
+      (hasValue(telemetry.bpm) || hasValue(telemetry.spo2));
 
-      showToast(msg, true);
-    }
-  }, [assessment.level, assessment.status, telemetry]);
+    if (!shouldAlert) return;
+
+    const msg =
+      assessment.level === "danger"
+        ? "Cảnh báo nguy hiểm: kiểm tra SpO₂/BPM ngay"
+        : `Cảnh báo: ${assessment.status}`;
+
+    showToast(msg, true);
+
+    const nowMs = Date.now();
+    const enableRemoteAlert = ENABLE_EMAIL_ALERT || ENABLE_TELEGRAM_ALERT;
+
+    if (!enableRemoteAlert) return;
+    if (remoteAlertBusyRef.current) return;
+    if (nowMs - lastRemoteAlertRef.current < REMOTE_ALERT_COOLDOWN_MS) return;
+
+    lastRemoteAlertRef.current = nowMs;
+    remoteAlertBusyRef.current = true;
+
+    Promise.allSettled([
+      ENABLE_EMAIL_ALERT
+        ? sendEmailAlert(telemetry, assessment)
+        : Promise.resolve({ ok: true, skipped: "email" }),
+      ENABLE_TELEGRAM_ALERT
+        ? sendTelegramAlert(telemetry, assessment)
+        : Promise.resolve({ ok: true, skipped: "telegram" }),
+    ])
+      .then((results) => {
+        const failed = results.some(
+          (result) =>
+            result.status === "rejected" ||
+            (result.status === "fulfilled" && result.value?.ok === false)
+        );
+
+        showToast(
+          failed
+            ? "Có lỗi khi gửi cảnh báo Email/Telegram. Kiểm tra .env.local và terminal web"
+            : "Đã gửi cảnh báo qua Email/Telegram",
+          true
+        );
+      })
+      .catch(() => {
+        showToast("Không gửi được cảnh báo Email/Telegram", true);
+      })
+      .finally(() => {
+        remoteAlertBusyRef.current = false;
+      });
+  }, [assessment, telemetry]);
 
   function showToast(message: string, cooldown = false) {
     const nowMs = Date.now();
@@ -385,6 +453,27 @@ export default function HealthDashboard() {
             : "MQTT chưa kết nối, chưa gửi được ngưỡng"
       );
     }, 450);
+  }
+
+  function toggleOled() {
+    const next = !oledOn;
+    const ok = publishOledState(mqttClientRef.current, next);
+
+    if (ENABLE_MOCK || ok) {
+      setOledOn(next);
+    }
+
+    showToast(
+      ENABLE_MOCK
+        ? next
+          ? "Mock mode: OLED đã bật"
+          : "Mock mode: OLED đã tắt"
+        : ok
+          ? next
+            ? "Đã gửi lệnh bật OLED"
+            : "Đã gửi lệnh tắt OLED"
+          : "MQTT chưa kết nối, chưa gửi được lệnh OLED"
+    );
   }
 
   function sendCommand(type: "reset" | "alarm") {
@@ -477,9 +566,10 @@ export default function HealthDashboard() {
       "MAX30102",
       telemetry ? (isMeasuring ? "Đang đo" : "Chờ ngón tay") : "No data",
     ],
-    ["OLED", telemetry ? "Active" : "Unknown"],
+    ["OLED", oledOn ? "ON" : "OFF"],
     ["LED", isMeasuring ? "ON" : "OFF"],
-    ["Còi", buzzerEnabled ? "ON" : "OFF"],
+    ["Quyền còi", buzzerEnabled ? "Bật" : "Tắt"],
+    ["Còi thực tế", buzzerRinging ? "Đang kêu" : "Không kêu"],
   ];
 
   return (
@@ -712,11 +802,13 @@ export default function HealthDashboard() {
         <MetricCard
           title="Tình trạng sức khỏe"
           value={assessment.status}
-          status={buzzerEnabled ? "Còi: Bật" : "Còi: Tắt"}
+          status={buzzerRinging ? "Còi: Đang kêu" : buzzerEnabled ? "Còi: Sẵn sàng" : "Còi: Đã tắt"}
           subtitle={
-            buzzerEnabled
-              ? "Còi sẽ kêu khi SpO₂ vượt ngưỡng cảnh báo"
-              : "Còi đang tắt, vượt ngưỡng cũng không kêu"
+            buzzerRinging
+              ? "SpO₂ dưới ngưỡng, còi đang cảnh báo"
+              : buzzerEnabled
+                ? "Còi sẽ kêu khi SpO₂ thấp hơn ngưỡng"
+                : "Còi đang tắt, vượt ngưỡng cũng không kêu"
           }
           tone={
             assessment.level === "danger"
@@ -777,7 +869,7 @@ export default function HealthDashboard() {
                 />
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-3">
                 <button
                   disabled={commandBusy}
                   className="glass-button"
@@ -793,7 +885,16 @@ export default function HealthDashboard() {
                   onClick={() => sendCommand("alarm")}
                 >
                   <Siren className="h-4 w-4 text-orange-500" />
-                  Còi: {buzzerEnabled ? "Bật" : "Tắt"}
+                  {buzzerEnabled ? "Tắt còi" : "Bật còi"}
+                </button>
+
+                <button
+                  disabled={commandBusy}
+                  className="glass-button"
+                  onClick={toggleOled}
+                >
+                  <Cpu className="h-4 w-4 text-violet-500" />
+                  {oledOn ? "Tắt OLED" : "Bật OLED"}
                 </button>
               </div>
             </div>

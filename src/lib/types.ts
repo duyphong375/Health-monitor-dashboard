@@ -30,6 +30,9 @@ export type HealthTelemetry = {
   buzzer?: boolean;
   alarm_status?: boolean;
   alarmStatus?: boolean;
+  alarm_muted?: boolean;
+  alarmMuted?: boolean;
+  muted?: boolean;
 
   led?: boolean;
   led_status?: string | boolean;
@@ -67,6 +70,7 @@ export type NormalizedTelemetry = {
   spo2Threshold: number;
 
   buzzer: boolean;
+  alarmMuted: boolean;
   led: boolean | null;
 
   signalQuality: string;

@@ -47,8 +47,8 @@ function toBool(value: unknown): boolean | null {
   if (typeof value === "number") return value !== 0;
   if (typeof value === "string") {
     const v = value.toLowerCase();
-    if (["on", "true", "1", "bật", "bat", "active", "online"].includes(v)) return true;
-    if (["off", "false", "0", "tắt", "tat", "inactive", "offline"].includes(v)) return false;
+    if (["on", "true", "1", "bật", "bat", "active", "online", "đang đo", "dang do"].includes(v)) return true;
+    if (["off", "false", "0", "tắt", "tat", "inactive", "offline", "không đo", "khong do"].includes(v)) return false;
   }
   return null;
 }
@@ -79,6 +79,7 @@ export function normalizeTelemetry(input: HealthTelemetry): NormalizedTelemetry 
     waveform,
     spo2Threshold: threshold,
     buzzer: Boolean(toBool(input.buzzer ?? input.alarm_status ?? input.alarmStatus)),
+    alarmMuted: Boolean(toBool(input.alarm_muted ?? input.alarmMuted ?? input.muted)),
     led: toBool(input.led ?? input.led_status),
     signalQuality: input.signal_quality || (Boolean(fingerDetected) ? "Đang đo" : "Chưa có dữ liệu"),
     firmwareVersion: input.firmwareVersion || input.firmware_version,

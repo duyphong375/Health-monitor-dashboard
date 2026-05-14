@@ -20,6 +20,8 @@ export const resetTopic = `device/${DEVICE_ID}/control/reset_measurement`;
 
 export const alarmMuteTopic = `device/${DEVICE_ID}/control/alarm_mute`;
 
+export const oledTopic = `device/${DEVICE_ID}/control/oled`;
+
 export type MqttConnectionStatus = "connecting" | "online" | "offline";
 
 export type MqttHandlers = {
@@ -34,8 +36,10 @@ export function createMqttClient(handlers: MqttHandlers): MqttClient {
   const client = mqtt.connect(MQTT_URL, {
     clientId: `health_web_${Math.random().toString(16).slice(2)}`,
     clean: true,
-    reconnectPeriod: 3000,
-    connectTimeout: 10000,
+    reconnectPeriod: 1000,
+    connectTimeout: 8000,
+    keepalive: 20,
+    resubscribe: true,
   });
 
   client.on("connect", () => {
@@ -132,5 +136,16 @@ export function publishAlarmMute(
     alarm_mute: muted,
     alarmMute: muted,
     muted,
+  });
+}
+
+export function publishOledState(
+  client: MqttClient | null,
+  oledOn: boolean
+) {
+  return publishJson(client, oledTopic, {
+    oled: oledOn,
+    oled_status: oledOn ? "ON" : "OFF",
+    oledStatus: oledOn ? "ON" : "OFF",
   });
 }
